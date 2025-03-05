@@ -2,8 +2,8 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -125,7 +125,7 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         
         _loanIdCounter = 1;
         
-        // Set initial interest rate limits - amplos, conforme solicitado
+        // Set initial interest rate limits 
         minInterestRate = 1; // 0.01% min APR
         maxInterestRate = 100000; // 1000% max APR
         
@@ -412,6 +412,15 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         return (principal * interestRate * durationInDays) / (10000 * 365);
     }
     
+        /**
+     * @dev Set the loan vault address
+     * @param loanVaultAddress New loan vault address
+     */
+    function setLoanVault(address loanVaultAddress) external onlyOwner {
+        require(loanVaultAddress != address(0), "Invalid address");
+        _loanVault = ILoanVault(loanVaultAddress);
+    }
+
     /**
      * @dev Set the minimum interest rate
      * @param newMinRate New minimum rate in basis points

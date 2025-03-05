@@ -1,7 +1,21 @@
 {
+  "name": "yaplend-protocol",
+  "version": "1.0.0",
+  "description": "YapLend - NFT Lending Protocol",
+  "scripts": {
+    "compile": "hardhat compile",
+    "clean": "hardhat clean",
+    "test": "hardhat test",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:monad": "hardhat run scripts/deploy.js --network monad",
+    "verify:monad": "hardhat run scripts/verify-monad.js --network monad",
+    "node": "hardhat node",
+    "transfer-ownership:monad": "hardhat run scripts/transfer-ownership.js --network monad"
+  },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@openzeppelin/hardhat-upgrades": "^3.9.0",
+    "dotenv": "^16.4.7",
     "hardhat": "^2.22.19"
   },
   "dependencies": {
