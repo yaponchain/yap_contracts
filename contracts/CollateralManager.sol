@@ -2,9 +2,11 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/interfaces/IERC721.sol";
 
 interface IPriceOracle {
     function getNFTPrice(address nftAddress, uint256 tokenId) external view returns (uint256);
@@ -15,7 +17,7 @@ interface IPriceOracle {
  * @title CollateralManager
  * @dev Manages NFT collateral for the YAP LEND protocol
  */
-contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable {
+contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     // Struct to store collateral information
     struct CollateralInfo {
         address nftAddress;
@@ -30,10 +32,10 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
     // Mapping from loan ID to array of collateral IDs
     mapping(uint256 => bytes32[]) public loanCollateralIds;
     
-    // Mapping of allowed NFT collections
+    // Mapping of allowed NFT collections (mantido para compatibilidade, mas não utilizado)
     mapping(address => bool) public allowedCollections;
     
-    // Minimum collateral value ratio (in basis points, e.g., 15000 = 150%)
+    // Minimum collateral value ratio (mantido para compatibilidade, mas não utilizado)
     uint256 public minimumCollateralRatio;
     
     // Price oracle interface
@@ -44,7 +46,6 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
     event CollateralRemoved(uint256 indexed loanId, address indexed nftAddress, uint256 tokenId);
     event CollectionAllowListUpdated(address indexed nftAddress, bool allowed);
     
-    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
@@ -56,10 +57,17 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
         __Pausable_init();
         __ReentrancyGuard_init();
         __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
         
         _priceOracle = IPriceOracle(priceOracleAddress);
-        minimumCollateralRatio = 15000; // 150%
+        minimumCollateralRatio = 15000; // 150% (mantido por compatibilidade, mas não utilizado)
     }
+    
+    /**
+     * @dev Function that authorizes upgrades for UUPS pattern
+     * @param newImplementation Address of the new implementation
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
     
     /**
      * @dev Add collateral to a loan
@@ -72,13 +80,20 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
         address nftAddress,
         uint256 tokenId
     ) external nonReentrant whenNotPaused {
-        require(allowedCollections[nftAddress], "Collection not allowed");
+        // Removida verificação de whitelist:
+        // require(allowedCollections[nftAddress], "Collection not allowed");
         
         // Generate a unique collateral ID
         bytes32 collateralId = keccak256(abi.encodePacked(nftAddress, tokenId, loanId));
         
         // Verify this NFT is not already used as collateral
         require(!collaterals[collateralId].active, "NFT already used as collateral");
+        
+        try IERC721(nftAddress).ownerOf(tokenId) returns (address) {
+            
+        } catch {
+            revert("NFT does not exist");
+        }
         
         // Store collateral information
         collaterals[collateralId] = CollateralInfo({
@@ -127,27 +142,25 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
         address nftAddress,
         uint256 tokenId
     ) external view returns (bool) {
-        // Check if the collection is allowed
-        if (!allowedCollections[nftAddress]) {
+        // Verificar apenas se o NFT existe
+        try IERC721(nftAddress).ownerOf(tokenId) returns (address) {
+            return true;
+        } catch {
             return false;
         }
-        
-        // Check if the NFT has a minimum value
-        uint256 nftValue = _priceOracle.getNFTPrice(nftAddress, tokenId);
-        return nftValue > 0;
     }
     
     /**
      * @dev Check the value of an NFT
-     * @param nftAddress NFT contract address
-     * @param tokenId Token ID
-     * @return Value of the NFT
+     * @return Value of the NFT (fixed high value for MVP)
      */
     function checkNFTValue(
-        address nftAddress,
-        uint256 tokenId
-    ) external view returns (uint256) {
-        return _priceOracle.getNFTPrice(nftAddress, tokenId);
+        address,  // nftAddress (não utilizado)
+        uint256   // tokenId (não utilizado)
+    ) external pure returns (uint256) {
+        // Valor fixo alto para o MVP
+        // Isso garante que qualquer colateral seja aceito sem consultar o price oracle
+        return 1000 ether;
     }
     
     /**
@@ -157,17 +170,10 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
      */
     function calculateTotalCollateralValue(uint256 loanId) external view returns (uint256) {
         bytes32[] memory collateralIds = loanCollateralIds[loanId];
-        uint256 totalValue = 0;
         
-        for (uint256 i = 0; i < collateralIds.length; i++) {
-            CollateralInfo memory collateral = collaterals[collateralIds[i]];
-            
-            if (collateral.active) {
-                totalValue += _priceOracle.getNFTPrice(collateral.nftAddress, collateral.tokenId);
-            }
-        }
-        
-        return totalValue;
+        // Modificado para retornar um valor proporcional ao número de NFTs
+        // sem depender do price oracle
+        return collateralIds.length * 1000 ether;
     }
     
     /**
@@ -176,6 +182,7 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
      * @param allowed Whether the collection is allowed
      */
     function setCollectionAllowance(address nftAddress, bool allowed) external onlyOwner {
+        // Mantido para compatibilidade, mas não é mais usado no fluxo principal
         allowedCollections[nftAddress] = allowed;
         emit CollectionAllowListUpdated(nftAddress, allowed);
     }
@@ -185,6 +192,7 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
      * @param newRatio New minimum collateral ratio (in basis points)
      */
     function setMinimumCollateralRatio(uint256 newRatio) external onlyOwner {
+        // Mantido para compatibilidade, mas não é mais usado no fluxo principal
         require(newRatio >= 10000, "Ratio must be at least 100%");
         minimumCollateralRatio = newRatio;
     }

@@ -2,15 +2,16 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 /**
  * @title LiquidityPool
  * @dev Manages liquidity for the YAP LEND protocol
  */
-contract LiquidityPool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable {
+contract LiquidityPool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     // Mapping from provider address to their liquidity amount
     mapping(address => uint256) public providerLiquidity;
     
@@ -51,6 +52,7 @@ contract LiquidityPool is Initializable, PausableUpgradeable, ReentrancyGuardUpg
         __Pausable_init();
         __ReentrancyGuard_init();
         __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
         
         liquidityAPY = 500; // 5% initial APY
         lastAPYUpdateTime = block.timestamp;
@@ -59,6 +61,12 @@ contract LiquidityPool is Initializable, PausableUpgradeable, ReentrancyGuardUpg
         maxAPY = 2000; // 20% maximum APY
         utilizationRatio = 0; // 0% initial utilization
     }
+    
+    /**
+     * @dev Function that authorizes upgrades for UUPS pattern
+     * @param newImplementation Address of the new implementation
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
     
     /**
      * @dev Provide liquidity to the pool

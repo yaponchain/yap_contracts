@@ -2,9 +2,10 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IYapLendCore {
     function loans(uint256 loanId) external view returns (
@@ -25,7 +26,7 @@ interface IYapLendCore {
  * @title LoanVault
  * @dev Manages the funds for the YAP LEND protocol
  */
-contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable {
+contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     // Interface to YapLendCore
     IYapLendCore private _yapLendCore;
     
@@ -55,9 +56,16 @@ contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgrade
         __Pausable_init();
         __ReentrancyGuard_init();
         __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
         
         _yapLendCore = IYapLendCore(yapLendCoreAddress);
     }
+    
+    /**
+     * @dev Function that authorizes upgrades for UUPS pattern
+     * @param newImplementation Address of the new implementation
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
     
     /**
      * @dev Deposit funds for a loan

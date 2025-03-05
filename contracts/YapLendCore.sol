@@ -2,15 +2,16 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface ICollateralManager {
     function addCollateral(uint256 loanId, address nftAddress, uint256 tokenId) external;
     function removeCollateral(uint256 loanId, address nftAddress, uint256 tokenId) external;
     function validateCollateral(address nftAddress, uint256 tokenId) external view returns (bool);
-    function checkNFTValue(address nftAddress, uint256 tokenId) external view returns (uint256);
+    function checkNFTValue(address, uint256) external pure returns (uint256);
 }
 
 interface INFTVerifier {
@@ -35,7 +36,7 @@ interface ILiquidityPool {
  * @title YapLendCore
  * @dev Main contract for the YAP LEND protocol, manages loan lifecycle
  */
-contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable {
+contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     // Struct to store loan information
     struct Loan {
         address borrower;
@@ -115,6 +116,7 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         __Pausable_init();
         __ReentrancyGuard_init();
         __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
         
         _collateralManager = ICollateralManager(collateralManagerAddress);
         _nftVerifier = INFTVerifier(nftVerifierAddress);
@@ -123,9 +125,9 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         
         _loanIdCounter = 1;
         
-        // Set initial interest rate limits
-        minInterestRate = 100; // 1% min APR
-        maxInterestRate = 6000; // 60% max APR
+        // Set initial interest rate limits - amplos, conforme solicitado
+        minInterestRate = 1; // 0.01% min APR
+        maxInterestRate = 100000; // 1000% max APR
         
         // Set protocol fee percentage to 5%
         protocolFeePercentage = 500;
@@ -135,10 +137,18 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
     }
     
     /**
+     * @dev Function that authorizes upgrades for UUPS pattern
+     * @param newImplementation Address of the new implementation
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    
+    /**
      * @dev Creates a new loan with multiple NFTs as collateral
      * Normal users should create loans through the ProposalManager
      * This function can be called directly only by the ProposalManager
      * 
+     * @param borrower Address of the borrower
+     * @param lender Address of the lender
      * @param nftAddresses Array of NFT contract addresses
      * @param tokenIds Array of token IDs
      * @param loanAmount Amount to borrow
@@ -183,13 +193,8 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
             );
         }
         
-        // Calculate total collateral value and check if sufficient
-        uint256 totalCollateralValue = 0;
-        for (uint256 i = 0; i < nftAddresses.length; i++) {
-            totalCollateralValue += _collateralManager.checkNFTValue(nftAddresses[i], tokenIds[i]);
-        }
-        
-        require(totalCollateralValue >= loanAmount, "Insufficient collateral value");
+        // Removida verificação de valor do colateral
+        // Parte do valor é determinado pela negociação entre as partes
         
         // If called with funds, ensure sufficient amount is sent
         if (msg.sender == proposalManager) {
@@ -262,14 +267,6 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
             );
         }
         
-        // Calculate total collateral value and check if sufficient
-        uint256 totalCollateralValue = 0;
-        for (uint256 i = 0; i < nftAddresses.length; i++) {
-            totalCollateralValue += _collateralManager.checkNFTValue(nftAddresses[i], tokenIds[i]);
-        }
-        
-        require(totalCollateralValue >= loanAmount, "Insufficient collateral value");
-        
         // Create loan
         uint256 loanId = _loanIdCounter++;
         
@@ -329,12 +326,12 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         // Primeiro, depositamos o valor principal
         _loanVault.deposit{value: loan.amount}(loanId);
         
-        // Depois, processamos o pagamento de juros, que enviará a taxa para o multisig
+        // Depois, processamos o pagamento de juros, que enviará a taxa para a carteira
         if (interest > 0) {
             // Transferir os juros para o LoanVault
             _loanVault.deposit{value: interest}(loanId);
             
-            // Processar o pagamento de juros, que calculará e enviará a taxa para o multisig
+            // Processar o pagamento de juros, que calculará e enviará a taxa para a carteira
             _loanVault.processInterestPayment(loanId, interest);
         }
         
@@ -431,7 +428,6 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
      */
     function setMaxInterestRate(uint256 newMaxRate) external onlyOwner {
         require(newMaxRate > minInterestRate, "Max must be greater than min");
-        require(newMaxRate <= 10000, "Max cannot exceed 100%");
         maxInterestRate = newMaxRate;
         emit ProtocolParameterUpdated("maxInterestRate", newMaxRate);
     }

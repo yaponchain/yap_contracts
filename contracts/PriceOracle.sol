@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IAggregatorV3 {
     function latestRoundData() external view returns (
@@ -15,10 +16,10 @@ interface IAggregatorV3 {
 }
 
 /**
- * @title PriceOracle
- * @dev Provides price data for NFTs and tokens
- */
-contract PriceOracle is Initializable, OwnableUpgradeable {
+* @title PriceOracle
+* @dev Provides price data for NFTs and tokens
+*/
+contract PriceOracle is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     // Struct to store NFT collection price information
     struct CollectionPrice {
         uint256 floorPrice; // Floor price in wei
@@ -52,19 +53,26 @@ contract PriceOracle is Initializable, OwnableUpgradeable {
     }
     
     /**
-     * @dev Initializes the contract
-     */
+    * @dev Initializes the contract
+    */
     function initialize() public initializer {
         __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
         priceStaleThreshold = 24 hours;
     }
     
     /**
-     * @dev Gets the price of a specific NFT
-     * @param nftAddress NFT contract address
-     * @param tokenId Token ID
-     * @return Price of the NFT in wei
+     * @dev Function that authorizes upgrades for UUPS pattern
+     * @param newImplementation Address of the new implementation
      */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    
+    /**
+    * @dev Gets the price of a specific NFT
+    * @param nftAddress NFT contract address
+    * @param tokenId Token ID
+    * @return Price of the NFT in wei
+    */
     function getNFTPrice(
         address nftAddress,
         uint256 tokenId
@@ -89,10 +97,10 @@ contract PriceOracle is Initializable, OwnableUpgradeable {
     }
     
     /**
-     * @dev Gets the price of a token from a Chainlink price feed
-     * @param tokenAddress Token contract address
-     * @return Price of the token in USD (scaled by 1e8)
-     */
+    * @dev Gets the price of a token from a Chainlink price feed
+    * @param tokenAddress Token contract address
+    * @return Price of the token in USD (scaled by 1e8)
+    */
     function getTokenPrice(
         address tokenAddress
     ) external view returns (uint256) {
@@ -121,10 +129,10 @@ contract PriceOracle is Initializable, OwnableUpgradeable {
     }
     
     /**
-     * @dev Updates the floor price for an NFT collection
-     * @param nftAddress NFT contract address
-     * @param floorPrice New floor price in wei
-     */
+    * @dev Updates the floor price for an NFT collection
+    * @param nftAddress NFT contract address
+    * @param floorPrice New floor price in wei
+    */
     function updateCollectionPrice(
         address nftAddress,
         uint256 floorPrice
@@ -141,11 +149,11 @@ contract PriceOracle is Initializable, OwnableUpgradeable {
     }
     
     /**
-     * @dev Updates the price for a specific NFT
-     * @param nftAddress NFT contract address
-     * @param tokenId Token ID
-     * @param price New price in wei
-     */
+    * @dev Updates the price for a specific NFT
+    * @param nftAddress NFT contract address
+    * @param tokenId Token ID
+    * @param price New price in wei
+    */
     function updateSpecificNFTPrice(
         address nftAddress,
         uint256 tokenId,
@@ -159,10 +167,10 @@ contract PriceOracle is Initializable, OwnableUpgradeable {
     }
     
     /**
-     * @dev Updates the price feed for a token
-     * @param tokenAddress Token contract address
-     * @param priceFeed Chainlink price feed address
-     */
+    * @dev Updates the price feed for a token
+    * @param tokenAddress Token contract address
+    * @param priceFeed Chainlink price feed address
+    */
     function updateTokenPriceFeed(
         address tokenAddress,
         address priceFeed
@@ -176,19 +184,19 @@ contract PriceOracle is Initializable, OwnableUpgradeable {
     }
     
     /**
-     * @dev Sets the stale threshold for prices
-     * @param newThreshold New threshold in seconds
-     */
+    * @dev Sets the stale threshold for prices
+    * @param newThreshold New threshold in seconds
+    */
     function setPriceStaleThreshold(uint256 newThreshold) external onlyOwner {
         require(newThreshold > 0, "Threshold must be positive");
         priceStaleThreshold = newThreshold;
     }
     
     /**
-     * @dev Authorizes or revokes an address to update prices
-     * @param updater Updater address
-     * @param authorized Authorization status
-     */
+    * @dev Authorizes or revokes an address to update prices
+    * @param updater Updater address
+    * @param authorized Authorization status
+    */
     function setUpdaterAuthorization(address updater, bool authorized) external onlyOwner {
         require(updater != address(0), "Invalid updater address");
         
@@ -198,10 +206,10 @@ contract PriceOracle is Initializable, OwnableUpgradeable {
     }
     
     /**
-     * @dev Batch update collection prices
-     * @param nftAddresses Array of NFT contract addresses
-     * @param floorPrices Array of floor prices
-     */
+    * @dev Batch update collection prices
+    * @param nftAddresses Array of NFT contract addresses
+    * @param floorPrices Array of floor prices
+    */
     function batchUpdateCollectionPrices(
         address[] calldata nftAddresses,
         uint256[] calldata floorPrices

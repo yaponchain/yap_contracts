@@ -2,10 +2,12 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
+// Interface atualizada para refletir a nova assinatura da função createLoan
 interface IYapLendCore {
     function createLoan(
         address borrower,
@@ -22,7 +24,7 @@ interface IYapLendCore {
  * @title ProposalManager
  * @dev Manages loan proposals between NFT owners and liquidity providers
  */
-contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable {
+contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     // Interface to YapLendCore
     IYapLendCore private _yapLendCore;
     
@@ -78,10 +80,17 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
         __Pausable_init();
         __ReentrancyGuard_init();
         __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
         
         _yapLendCore = IYapLendCore(yapLendCoreAddress);
         _proposalIdCounter = 1;
     }
+    
+    /**
+     * @dev Function that authorizes upgrades for UUPS pattern
+     * @param newImplementation Address of the new implementation
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
     
     /**
      * @dev Create a loan proposal from NFT owner
@@ -306,19 +315,19 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
         return block.timestamp > proposal.expiresAt;
     }
     
-        /**
-    * @dev Get detailed proposal information
-    * @param proposalId ID of the proposal
-    * @return borrower Address of the borrower
-    * @return lender Address of the lender
-    * @return amount Loan amount
-    * @return duration Duration of the loan in seconds
-    * @return interestRate Interest rate in basis points
-    * @return createdAt Timestamp of proposal creation
-    * @return expiresAt Timestamp of expiration
-    * @return isActive Whether the proposal is active
-    * @return isCounterOffer Whether this is a counter offer
-    */
+    /**
+     * @dev Get detailed proposal information
+     * @param proposalId ID of the proposal
+     * @return borrower Address of the borrower
+     * @return lender Address of the lender
+     * @return amount Loan amount
+     * @return duration Duration of the loan in seconds
+     * @return interestRate Interest rate in basis points
+     * @return createdAt Timestamp of proposal creation
+     * @return expiresAt Timestamp of expiration
+     * @return isActive Whether the proposal is active
+     * @return isCounterOffer Whether this is a counter offer
+     */
     function getProposal(uint256 proposalId) external view returns (
         address borrower,
         address lender,
