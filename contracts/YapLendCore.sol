@@ -8,15 +8,18 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface ICollateralManager {
-    function addCollateral(uint256 loanId, address nftAddress, uint256 tokenId) external;
-    function removeCollateral(uint256 loanId, address nftAddress, uint256 tokenId) external;
+    function addCollateral(uint256 loanId, address nftAddress, uint256 tokenId, address borrower, address lender) external;
+    function removeCollateral(uint256 loanId, address nftAddress, uint256 tokenId, address recipient) external;
     function validateCollateral(address nftAddress, uint256 tokenId) external view returns (bool);
     function checkNFTValue(address, uint256) external pure returns (uint256);
+    function getEscrowAddress(address nftAddress, uint256 tokenId, uint256 loanId) external view returns (address);
+    function getLoanEscrowAddresses(uint256 loanId) external view returns (address[] memory);
 }
 
 interface INFTVerifier {
-    function verifyOwnership(address owner, address nftAddress, uint256 tokenId, bytes memory signature) external view returns (bool);
+    function verifyOwnership(address owner, address nftAddress, uint256 tokenId) external returns (bool);
     function checkApproval(address owner, address nftAddress, uint256 tokenId) external view returns (bool);
+    function verifyEscrowBeneficiary(address escrowAddress, address claimedBeneficiary) external view returns (bool);
 }
 
 interface ILoanVault {
@@ -34,7 +37,7 @@ interface ILiquidityPool {
 
 /**
  * @title YapLendCore
- * @dev Main contract for the YAP LEND protocol, manages loan lifecycle
+ * @dev Main contract for the YAP LEND protocol, manages loan lifecycle with escrow integration
  */
 contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     // Struct to store loan information
@@ -78,8 +81,8 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
     address public proposalManager; 
     
     // Contract interfaces
-    ICollateralManager private _collateralManager;
-    INFTVerifier private _nftVerifier;
+    ICollateralManager public collateralManager;
+    INFTVerifier public nftVerifier;
     ILoanVault private _loanVault;
     ILiquidityPool private _liquidityPool;
     
@@ -91,6 +94,8 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
     event ProtocolParameterUpdated(string parameter, uint256 value);
     event FeeCollectorUpdated(address newFeeCollector);
     event ProposalManagerUpdated(address newProposalManager);
+    event ProtocolFeeSent(uint256 indexed loanId, address indexed feeCollector, uint256 amount);
+    event FailedToSendFee(uint256 indexed loanId, address indexed feeCollector, uint256 amount);
     
     // Modifiers
     modifier onlyProposalManager() {
@@ -118,8 +123,8 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
         
-        _collateralManager = ICollateralManager(collateralManagerAddress);
-        _nftVerifier = INFTVerifier(nftVerifierAddress);
+        collateralManager = ICollateralManager(collateralManagerAddress);
+        nftVerifier = INFTVerifier(nftVerifierAddress);
         _loanVault = ILoanVault(loanVaultAddress);
         _liquidityPool = ILiquidityPool(liquidityPoolAddress);
         
@@ -184,17 +189,14 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         // Verify NFT ownership
         for (uint256 i = 0; i < nftAddresses.length; i++) {
             require(
-                _nftVerifier.verifyOwnership(borrower, nftAddresses[i], tokenIds[i], new bytes(0)),
+                nftVerifier.verifyOwnership(borrower, nftAddresses[i], tokenIds[i]),
                 "Borrower not owner of NFT"
             );
             require(
-                _collateralManager.validateCollateral(nftAddresses[i], tokenIds[i]),
+                collateralManager.validateCollateral(nftAddresses[i], tokenIds[i]),
                 "Invalid collateral"
             );
         }
-        
-        // Removida verificação de valor do colateral
-        // Parte do valor é determinado pela negociação entre as partes
         
         // If called with funds, ensure sufficient amount is sent
         if (msg.sender == proposalManager) {
@@ -222,7 +224,8 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
                 tokenId: tokenIds[i]
             }));
             
-            _collateralManager.addCollateral(loanId, nftAddresses[i], tokenIds[i]);
+            // Updated to include borrower and lender for the escrow
+            collateralManager.addCollateral(loanId, nftAddresses[i], tokenIds[i], borrower, lender);
             
             emit CollateralAdded(loanId, nftAddresses[i], tokenIds[i]);
         }
@@ -258,11 +261,11 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         // Verify NFT ownership and validate collateral
         for (uint256 i = 0; i < nftAddresses.length; i++) {
             require(
-                _nftVerifier.verifyOwnership(msg.sender, nftAddresses[i], tokenIds[i], new bytes(0)),
+                nftVerifier.verifyOwnership(msg.sender, nftAddresses[i], tokenIds[i]),
                 "Not owner of NFT"
             );
             require(
-                _collateralManager.validateCollateral(nftAddresses[i], tokenIds[i]),
+                collateralManager.validateCollateral(nftAddresses[i], tokenIds[i]),
                 "Invalid collateral"
             );
         }
@@ -288,7 +291,8 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
                 tokenId: tokenIds[i]
             }));
             
-            _collateralManager.addCollateral(loanId, nftAddresses[i], tokenIds[i]);
+            // Updated to include borrower and lender for the escrow
+            collateralManager.addCollateral(loanId, nftAddresses[i], tokenIds[i], msg.sender, address(0));
             
             emit CollateralAdded(loanId, nftAddresses[i], tokenIds[i]);
         }
@@ -328,11 +332,35 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         
         // Depois, processamos o pagamento de juros, que enviará a taxa para a carteira
         if (interest > 0) {
+            // Calcular a taxa do protocolo
+            uint256 protocolFee = (interest * protocolFeePercentage) / 10000;
             // Transferir os juros para o LoanVault
             _loanVault.deposit{value: interest}(loanId);
             
-            // Processar o pagamento de juros, que calculará e enviará a taxa para a carteira
+            // Processar o pagamento de juros
             _loanVault.processInterestPayment(loanId, interest);
+            
+            // Enviar a taxa do protocolo
+            if (protocolFee > 0) {
+                (bool feeSuccess, ) = payable(feeCollector).call{value: protocolFee}("");
+                if (feeSuccess) {
+                    emit ProtocolFeeSent(loanId, feeCollector, protocolFee);
+                } else {
+                    emit FailedToSendFee(loanId, feeCollector, protocolFee);
+                }
+            }
+        }
+        
+        // Release collateral back to the borrower
+        Collateral[] memory collaterals = loanCollaterals[loanId];
+        for (uint256 i = 0; i < collaterals.length; i++) {
+            // Updated to specify the recipient (borrower)
+            collateralManager.removeCollateral(
+                loanId, 
+                collaterals[i].nftAddress, 
+                collaterals[i].tokenId,
+                msg.sender // return to borrower
+            );
         }
         
         // Return excess payment if any
@@ -363,10 +391,43 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         loan.active = false;
         loan.liquidated = true;
         
-        // Process liquidation - this would involve transferring collateral to liquidator or protocol
-        // In a real implementation, this would handle auction or direct liquidation process
+        // Transfer collateral to the lender
+        Collateral[] memory collaterals = loanCollaterals[loanId];
+        for (uint256 i = 0; i < collaterals.length; i++) {
+            // Updated to transfer collateral to lender instead of borrower
+            collateralManager.removeCollateral(
+                loanId, 
+                collaterals[i].nftAddress, 
+                collaterals[i].tokenId,
+                loan.lender // transfer to lender
+            );
+        }
         
         emit LoanLiquidated(loanId, loan.borrower, loan.amount);
+    }
+    
+    /**
+     * @dev Get the escrow addresses for all collaterals of a loan
+     * @param loanId ID of the loan
+     * @return Array of escrow addresses
+     */
+    function getLoanEscrowAddresses(uint256 loanId) external view returns (address[] memory) {
+        return collateralManager.getLoanEscrowAddresses(loanId);
+    }
+    
+    /**
+     * @dev Get the escrow address for a specific collateral
+     * @param loanId ID of the loan
+     * @param nftAddress NFT contract address
+     * @param tokenId Token ID
+     * @return Escrow contract address
+     */
+    function getEscrowAddress(
+        uint256 loanId,
+        address nftAddress,
+        uint256 tokenId
+    ) external view returns (address) {
+        return collateralManager.getEscrowAddress(nftAddress, tokenId, loanId);
     }
     
     /**
@@ -374,16 +435,14 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
      * @param owner Address of the claimed owner
      * @param nftAddress NFT contract address
      * @param tokenId Token ID
-     * @param signature Signature to verify ownership
      * @return True if ownership is verified
      */
     function verifyNFTOwnership(
         address owner,
         address nftAddress,
-        uint256 tokenId,
-        bytes memory signature
-    ) public view returns (bool) {
-        return _nftVerifier.verifyOwnership(owner, nftAddress, tokenId, signature);
+        uint256 tokenId
+    ) public returns (bool) {
+        return nftVerifier.verifyOwnership(owner, nftAddress, tokenId);
     }
     
     /**
@@ -412,7 +471,7 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         return (principal * interestRate * durationInDays) / (10000 * 365);
     }
     
-        /**
+    /**
      * @dev Set the loan vault address
      * @param loanVaultAddress New loan vault address
      */
@@ -469,6 +528,33 @@ contract YapLendCore is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
         require(_proposalManager != address(0), "Invalid address");
         proposalManager = _proposalManager;
         emit ProposalManagerUpdated(_proposalManager);
+    }
+
+        /**
+     * @dev Set the collateral manager address
+     * @param collateralManagerAddress New collateral manager address
+     */
+    function setCollateralManager(address collateralManagerAddress) external onlyOwner {
+        require(collateralManagerAddress != address(0), "Invalid address");
+        collateralManager = ICollateralManager(collateralManagerAddress);
+    }
+
+    /**
+     * @dev Set the NFT verifier address
+     * @param nftVerifierAddress New NFT verifier address
+     */
+    function setNFTVerifier(address nftVerifierAddress) external onlyOwner {
+        require(nftVerifierAddress != address(0), "Invalid address");
+        nftVerifier = INFTVerifier(nftVerifierAddress);
+    }
+
+    /**
+     * @dev Set the liquidity pool address
+     * @param liquidityPoolAddress New liquidity pool address
+     */
+    function setLiquidityPool(address liquidityPoolAddress) external onlyOwner {
+        require(liquidityPoolAddress != address(0), "Invalid address");
+        _liquidityPool = ILiquidityPool(liquidityPoolAddress);
     }
     
     /**

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 async function main() {
-  console.log("Starting deployment of YapLend Protocol to Monad...");
+  console.log("Starting deployment of YapLend Protocol with NFT Escrow to Monad...");
   
   let deployedContracts = {};
   
@@ -21,20 +21,7 @@ async function main() {
     const network = await ethers.provider.getNetwork();
     console.log(`Deploying to Monad network (${network.chainId})`);
     
-    // Step 1: Deploy NFTVerifier
-    console.log("\n📄 Deploying NFTVerifier...");
-    const NFTVerifier = await ethers.getContractFactory("NFTVerifier");
-    const nftVerifier = await upgrades.deployProxy(NFTVerifier, [], {
-      kind: "uups",
-      initializer: "initialize"
-    });
-    await nftVerifier.waitForDeployment();
-    
-    const nftVerifierAddress = await nftVerifier.getAddress();
-    console.log(`✅ NFTVerifier deployed to: ${nftVerifierAddress}`);
-    deployedContracts.NFTVerifier = nftVerifierAddress;
-    
-    // Step 2: Deploy PriceOracle
+    // Step 1: Deploy PriceOracle
     console.log("\n📄 Deploying PriceOracle...");
     const PriceOracle = await ethers.getContractFactory("PriceOracle");
     const priceOracle = await upgrades.deployProxy(PriceOracle, [], {
@@ -47,20 +34,60 @@ async function main() {
     console.log(`✅ PriceOracle deployed to: ${priceOracleAddress}`);
     deployedContracts.PriceOracle = priceOracleAddress;
     
-    // Step 3: Deploy CollateralManager
-    console.log("\n📄 Deploying CollateralManager...");
-    const CollateralManager = await ethers.getContractFactory("CollateralManager");
-    const collateralManager = await upgrades.deployProxy(CollateralManager, [priceOracleAddress], {
+    // Step 2: Set up temporary placeholder address
+    console.log("\n📝 Setting up temporary placeholder address...");
+    const placeholderAddress = deployer.address; // Temporary placeholder
+    console.log(`Using placeholder address: ${placeholderAddress}`);
+    
+    // Step 3: Deploy YapLendCore (need placeholder for other addresses that will be updated later)
+    console.log("\n📄 Deploying YapLendCore with placeholders...");
+    const YapLendCore = await ethers.getContractFactory("YapLendCore");
+    const yapLendCore = await upgrades.deployProxy(YapLendCore, [
+      placeholderAddress, // CollateralManager address (will be updated)
+      placeholderAddress, // NFTVerifier address (will be updated)
+      placeholderAddress, // LoanVault address (will be updated)
+      placeholderAddress, // LiquidityPool address (will be updated)
+      deployer.address    // Fee collector address
+    ], {
       kind: "uups",
       initializer: "initialize"
     });
+    await yapLendCore.waitForDeployment();
+    
+    const yapLendCoreAddress = await yapLendCore.getAddress();
+    console.log(`✅ YapLendCore deployed to: ${yapLendCoreAddress}`);
+    deployedContracts.YapLendCore = yapLendCoreAddress;
+    
+    // Step 4: Deploy CollateralManager (needs YapLendCore and PriceOracle)
+    console.log("\n📄 Deploying CollateralManager...");
+    const CollateralManager = await ethers.getContractFactory("CollateralManager");
+    const collateralManager = await upgrades.deployProxy(CollateralManager, 
+      [priceOracleAddress, yapLendCoreAddress], // Now needs both PriceOracle and YapLendCore
+      {
+        kind: "uups",
+        initializer: "initialize"
+      }
+    );
     await collateralManager.waitForDeployment();
     
     const collateralManagerAddress = await collateralManager.getAddress();
     console.log(`✅ CollateralManager deployed to: ${collateralManagerAddress}`);
     deployedContracts.CollateralManager = collateralManagerAddress;
     
-    // Step 4: Deploy LiquidityPool
+    // Step 5: Deploy NFTVerifier (needs CollateralManager)
+    console.log("\n📄 Deploying NFTVerifier...");
+    const NFTVerifier = await ethers.getContractFactory("NFTVerifier");
+    const nftVerifier = await upgrades.deployProxy(NFTVerifier, [collateralManagerAddress], {
+      kind: "uups",
+      initializer: "initialize"
+    });
+    await nftVerifier.waitForDeployment();
+    
+    const nftVerifierAddress = await nftVerifier.getAddress();
+    console.log(`✅ NFTVerifier deployed to: ${nftVerifierAddress}`);
+    deployedContracts.NFTVerifier = nftVerifierAddress;
+    
+    // Step 6: Deploy LiquidityPool
     console.log("\n📄 Deploying LiquidityPool...");
     const LiquidityPool = await ethers.getContractFactory("LiquidityPool");
     const liquidityPool = await upgrades.deployProxy(LiquidityPool, [], {
@@ -72,31 +99,6 @@ async function main() {
     const liquidityPoolAddress = await liquidityPool.getAddress();
     console.log(`✅ LiquidityPool deployed to: ${liquidityPoolAddress}`);
     deployedContracts.LiquidityPool = liquidityPoolAddress;
-    
-    // Step 5: Set up fee collector address
-    console.log("\n📝 Setting up fee collector address...");
-    const feeCollectorAddress = process.env.FEE_COLLECTOR_ADDRESS || deployer.address;
-    console.log(`Using fee collector address: ${feeCollectorAddress}`);
-    
-    // Step 6: Deploy YapLendCore (need placeholder for LoanVault address)
-    console.log("\n📄 Deploying YapLendCore with placeholder...");
-    const placeholderAddress = deployer.address; // Temporary placeholder
-    const YapLendCore = await ethers.getContractFactory("YapLendCore");
-    const yapLendCore = await upgrades.deployProxy(YapLendCore, [
-      collateralManagerAddress,
-      nftVerifierAddress,
-      placeholderAddress, // Will be updated after LoanVault is deployed
-      liquidityPoolAddress,
-      feeCollectorAddress
-    ], {
-      kind: "uups",
-      initializer: "initialize"
-    });
-    await yapLendCore.waitForDeployment();
-    
-    const yapLendCoreAddress = await yapLendCore.getAddress();
-    console.log(`✅ YapLendCore deployed to: ${yapLendCoreAddress}`);
-    deployedContracts.YapLendCore = yapLendCoreAddress;
     
     // Step 7: Deploy LoanVault with YapLendCore address
     console.log("\n📄 Deploying LoanVault...");
@@ -111,11 +113,24 @@ async function main() {
     console.log(`✅ LoanVault deployed to: ${loanVaultAddress}`);
     deployedContracts.LoanVault = loanVaultAddress;
     
-    // Step 8: Update YapLendCore with correct LoanVault address
-    console.log("\n📝 Updating YapLendCore with correct LoanVault address...");
-    const collateralSetupTx = await yapLendCore.setLoanVault(loanVaultAddress);
-    await collateralSetupTx.wait();
+    // Step 8: Update YapLendCore with actual addresses
+    console.log("\n📝 Updating YapLendCore with correct contract addresses...");
+    
+    const updateCollateralManagerTx = await yapLendCore.setCollateralManager(collateralManagerAddress);
+    await updateCollateralManagerTx.wait();
+    console.log(`✅ YapLendCore updated with CollateralManager address: ${collateralManagerAddress}`);
+    
+    const updateNFTVerifierTx = await yapLendCore.setNFTVerifier(nftVerifierAddress);
+    await updateNFTVerifierTx.wait();
+    console.log(`✅ YapLendCore updated with NFTVerifier address: ${nftVerifierAddress}`);
+    
+    const updateLoanVaultTx = await yapLendCore.setLoanVault(loanVaultAddress);
+    await updateLoanVaultTx.wait();
     console.log(`✅ YapLendCore updated with LoanVault address: ${loanVaultAddress}`);
+    
+    const updateLiquidityPoolTx = await yapLendCore.setLiquidityPool(liquidityPoolAddress);
+    await updateLiquidityPoolTx.wait();
+    console.log(`✅ YapLendCore updated with LiquidityPool address: ${liquidityPoolAddress}`);
     
     // Step 9: Deploy ProposalManager
     console.log("\n📄 Deploying ProposalManager...");
@@ -136,11 +151,23 @@ async function main() {
     await proposalManagerSetupTx.wait();
     console.log(`✅ YapLendCore updated with ProposalManager address: ${proposalManagerAddress}`);
     
+    // Step 11: Update CollateralManager with YapLendCore address (needed for loanIdCounter)
+    console.log("\n📝 Updating CollateralManager with YapLendCore address...");
+    const updateYapLendCoreTx = await collateralManager.setYapLendCore(yapLendCoreAddress);
+    await updateYapLendCoreTx.wait();
+    console.log(`✅ CollateralManager updated with YapLendCore address: ${yapLendCoreAddress}`);
+    
+    // Step 12: Verify NFTEscrow implementation address for reference
+    console.log("\n📝 Getting NFTEscrow implementation address...");
+    const escrowImplAddress = await collateralManager.escrowImplementation();
+    console.log(`✅ NFTEscrow implementation address: ${escrowImplAddress}`);
+    deployedContracts.NFTEscrowImpl = escrowImplAddress;
+    
     // Save deployment information to file
     console.log("\n💾 Saving deployment information...");
     const deploymentInfo = {
         network: "monad",
-        chainId: Number(network.chainId), // Convertido para Number
+        chainId: Number(network.chainId),
         deployer: deployer.address,
         timestamp: new Date().toISOString(),
         contracts: deployedContracts
@@ -152,7 +179,7 @@ async function main() {
     }
     
     fs.writeFileSync(
-      path.join(deploymentsDir, `monad-${new Date().toISOString().split('T')[0]}.json`),
+      path.join(deploymentsDir, `monad-escrow-${new Date().toISOString().split('T')[0]}.json`),
       JSON.stringify(deploymentInfo, null, 2)
     );
     

@@ -1,0 +1,16 @@
+{
+  "network": "monad",
+  "chainId": 10143,
+  "deployer": "0xF68bE3d08b4fE60AC55Ac38C633949fB4C91c958",
+  "timestamp": "2025-03-10T01:23:19.707Z",
+  "contracts": {
+    "PriceOracle": "0xb1f20C688a9dA017586Ee30369Be429646A288E7",
+    "YapLendCore": "0xc2c9B6F7DBE1d7028Dd3754751Eb8708b4B7E97a",
+    "CollateralManager": "0x3AA54e27970fd6E4811aF0CeA22d867e64e572d6",
+    "NFTVerifier": "0xB0E4609BEBE2553a94A27E7feEc6192678586a6d",
+    "LiquidityPool": "0x02b6c799e165366B01ae5426c1E38F1E392d5Fa5",
+    "LoanVault": "0x83AeB0B647341c3ed10F7081eC6Ddb458C3d8a42",
+    "ProposalManager": "0x8aaBa9340B264bF4977C56B059cBe00b84903fb3",
+    "NFTEscrowImpl": "0x361C5a0cef84d05a3EE88e14Fe30446a2697358e"
+  }
+}

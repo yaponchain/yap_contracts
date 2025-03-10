@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-// Interface atualizada para refletir a nova assinatura da função createLoan
+// Interface para o YapLendCore
 interface IYapLendCore {
     function createLoan(
         address borrower,
@@ -18,15 +18,26 @@ interface IYapLendCore {
         uint256 duration,
         uint256 proposedInterestRate
     ) external payable returns (uint256);
+    
+    function nftVerifier() external view returns (address);
+}
+
+// Interface para o NFTVerifier
+interface INFTVerifier {
+    function verifyOwnership(address owner, address nftAddress, uint256 tokenId) external view returns (bool);
+    function checkApproval(address owner, address nftAddress, uint256 tokenId) external view returns (bool);
 }
 
 /**
  * @title ProposalManager
- * @dev Manages loan proposals between NFT owners and liquidity providers
+ * @dev Manages loan proposals between NFT owners and liquidity providers with escrow integration
  */
 contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     // Interface to YapLendCore
     IYapLendCore private _yapLendCore;
+    
+    // Interface to NFTVerifier
+    INFTVerifier private _nftVerifier;
     
     // Struct to store proposal information
     struct Proposal {
@@ -67,6 +78,7 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
     event ProposalExpired(uint256 indexed proposalId);
     event FundsLocked(address indexed lender, uint256 amount);
     event FundsReleased(address indexed lender, uint256 amount);
+    event NFTVerificationFailed(address indexed borrower, address nftAddress, uint256 tokenId);
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -83,6 +95,8 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
         __UUPSUpgradeable_init();
         
         _yapLendCore = IYapLendCore(yapLendCoreAddress);
+        // Inicialize o NFTVerifier usando o endereço do YapLendCore
+        _nftVerifier = INFTVerifier(_yapLendCore.nftVerifier());
         _proposalIdCounter = 1;
     }
     
@@ -112,6 +126,15 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
         require(nftAddresses.length == tokenIds.length, "Arrays length mismatch");
         require(requestedAmount > 0, "Amount must be greater than 0");
         require(duration > 0, "Duration must be greater than 0");
+        
+        // Verify NFT ownership using the updated NFTVerifier
+        for (uint256 i = 0; i < nftAddresses.length; i++) {
+            bool isOwner = _nftVerifier.verifyOwnership(msg.sender, nftAddresses[i], tokenIds[i]);
+            require(isOwner, "Not owner of NFT");
+            
+            bool isApproved = _nftVerifier.checkApproval(msg.sender, nftAddresses[i], tokenIds[i]);
+            require(isApproved, "NFT not approved for transfer");
+        }
         
         uint256 proposalId = _proposalIdCounter++;
         
@@ -202,20 +225,34 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
             "Unauthorized acceptance"
         );
         
-        // If it's a counter offer, check if it hasn't expired
+        // Se for uma contra-oferta, verificar se não expirou
         if (proposal.isCounterOffer) {
             require(block.timestamp <= proposal.expiresAt, "Counter offer expired");
+            
+            // Verificar novamente a propriedade do NFT e a aprovação no momento da aceitação
+            for (uint256 i = 0; i < proposal.nftAddresses.length; i++) {
+                bool isOwner = _nftVerifier.verifyOwnership(proposal.borrower, proposal.nftAddresses[i], proposal.tokenIds[i]);
+                if (!isOwner) {
+                    emit NFTVerificationFailed(proposal.borrower, proposal.nftAddresses[i], proposal.tokenIds[i]);
+                    revert("Borrower no longer owns NFT");
+                }
+                
+                bool isApproved = _nftVerifier.checkApproval(proposal.borrower, proposal.nftAddresses[i], proposal.tokenIds[i]);
+                if (!isApproved) {
+                    revert("NFT approval revoked");
+                }
+            }
         } else {
-            // If it's an original proposal, the lender becomes the caller
+            // Se for uma proposta original, o credor se torna o chamador
             proposal.lender = msg.sender;
             
-            // Check if lender sent enough funds
+            // Verificar se o credor enviou fundos suficientes
             require(msg.value >= proposal.amount, "Insufficient funds sent");
             
-            // Lock the funds
+            // Travar os fundos
             lockedFunds[msg.sender] += proposal.amount;
             
-            // Refund excess ETH if any
+            // Reembolsar o excesso de ETH, se houver
             uint256 excess = msg.value - proposal.amount;
             if (excess > 0) {
                 (bool success, ) = payable(msg.sender).call{value: excess}("");
@@ -225,14 +262,14 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
             emit FundsLocked(msg.sender, proposal.amount);
         }
         
-        // Mark proposal as inactive
+        // Marcar proposta como inativa
         proposal.isActive = false;
         
-        // Unlock the funds from the lender
+        // Desbloquear os fundos do credor
         uint256 amountToUnlock = proposal.amount;
         lockedFunds[proposal.lender] -= amountToUnlock;
         
-        // Create loan in YapLendCore com a nova assinatura da função
+        // Criar empréstimo no YapLendCore
         uint256 loanId = _yapLendCore.createLoan{value: proposal.amount}(
             proposal.borrower,
             proposal.lender,
@@ -376,6 +413,13 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
      */
     function getLockedFunds(address lender) external view returns (uint256) {
         return lockedFunds[lender];
+    }
+    
+    /**
+     * @dev Update the NFTVerifier reference (in case it changes in YapLendCore)
+     */
+    function updateNFTVerifier() external {
+        _nftVerifier = INFTVerifier(_yapLendCore.nftVerifier());
     }
     
     /**
