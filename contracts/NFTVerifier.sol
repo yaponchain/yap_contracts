@@ -74,23 +74,56 @@ contract NFTVerifier is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit DelegationRecorded(nftAddress, delegatee, status);
     }
     
-        /**
+   /**
+ * @dev Check NFT ownership without emitting events (for gas estimation)
+ * @param owner Address of the claimed owner
+ * @param nftAddress NFT contract address
+ * @param tokenId Token ID
+ * @return True if ownership is verified
+ */
+function checkOwnership(
+    address owner,
+    address nftAddress,
+    uint256 tokenId
+) external view returns (bool) {
+    // First check direct ownership
+    bool directOwnership = _checkDirectOwnership(owner, nftAddress, tokenId);
+    
+    if (directOwnership) {
+        return true;
+    }
+    
+    // If not direct owner, check escrow ownership
+    try IERC721(nftAddress).ownerOf(tokenId) returns (address currentOwner) {
+        // Check if current owner is an escrow contract
+        try NFTEscrow(currentOwner).isBeneficialOwner(owner) returns (bool isBeneficial) {
+            return isBeneficial;
+        } catch {
+            // Not an escrow contract or doesn't implement the interface
+            return false;
+        }
+    } catch {
+        // NFT doesn't exist or error in contract call
+        return false;
+    }
+}
+
+    /**
      * @dev Verify NFT ownership, both directly and through escrow
      * @param owner Address of the claimed owner
      * @param nftAddress NFT contract address
      * @param tokenId Token ID
      * @return True if ownership is verified
      */
-    function verifyOwnership(
+        function verifyOwnership(
         address owner,
         address nftAddress,
         uint256 tokenId
-    ) external returns (bool) {
+    ) external view returns (bool) {
         // First check direct ownership
         bool directOwnership = _checkDirectOwnership(owner, nftAddress, tokenId);
         
         if (directOwnership) {
-            emit VerificationRequested(owner, nftAddress, tokenId, true);
             return true;
         }
         
@@ -98,19 +131,17 @@ contract NFTVerifier is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         try IERC721(nftAddress).ownerOf(tokenId) returns (address currentOwner) {
             // Check if current owner is an escrow contract
             try NFTEscrow(currentOwner).isBeneficialOwner(owner) returns (bool isBeneficial) {
-                emit VerificationRequested(owner, nftAddress, tokenId, isBeneficial);
                 return isBeneficial;
             } catch {
                 // Not an escrow contract or doesn't implement the interface
-                emit VerificationRequested(owner, nftAddress, tokenId, false);
                 return false;
             }
         } catch {
             // NFT doesn't exist or error in contract call
-            emit VerificationRequested(owner, nftAddress, tokenId, false);
             return false;
         }
     }
+
     
     /**
      * @dev Check if a user has approved the protocol to use their NFT
@@ -119,7 +150,7 @@ contract NFTVerifier is Initializable, OwnableUpgradeable, UUPSUpgradeable {
      * @param tokenId Token ID
      * @return True if approval exists
      */
-    function checkApproval(
+        function checkApproval(
         address owner,
         address nftAddress,
         uint256 tokenId
@@ -133,11 +164,11 @@ contract NFTVerifier is Initializable, OwnableUpgradeable, UUPSUpgradeable {
             return false;
         }
         
-        // Check if this contract is approved to transfer the NFT
+        // Check if the CollateralManager is approved to transfer the NFT
         address approvedAddress = IERC721(nftAddress).getApproved(tokenId);
-        bool isApprovedForAll = IERC721(nftAddress).isApprovedForAll(owner, address(this));
+        bool isApprovedForAll = IERC721(nftAddress).isApprovedForAll(owner, address(collateralManager));
         
-        return (approvedAddress == address(this) || isApprovedForAll);
+        return (approvedAddress == address(collateralManager) || isApprovedForAll);
     }
     
     /**

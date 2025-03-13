@@ -9,13 +9,15 @@ async function main() {
   
   // Endereços dos novos contratos deployados
   const contracts = {
-    NFTVerifier: "0xB0E4609BEBE2553a94A27E7feEc6192678586a6d",
-    PriceOracle: "0xb1f20C688a9dA017586Ee30369Be429646A288E7",
-    CollateralManager: "0x3AA54e27970fd6E4811aF0CeA22d867e64e572d6",
-    LiquidityPool: "0x02b6c799e165366B01ae5426c1E38F1E392d5Fa5",
-    YapLendCore: "0xc2c9B6F7DBE1d7028Dd3754751Eb8708b4B7E97a",
-    LoanVault: "0x83AeB0B647341c3ed10F7081eC6Ddb458C3d8a42",
-    ProposalManager: "0x8aaBa9340B264bF4977C56B059cBe00b84903fb3",
+    NFTVerifier: "0x161B38a3e6a4E89222E8fDB2B97C302FBd6Aa53E",
+    PriceOracle: "0x068067Ad8926c163d948eCffE4FA3f93BCC9bc85",
+    CollateralManager: "0x92e4bA72513C6e2a80235fF5cD8060f9d2F5C65e",
+    LiquidityPool: "0xe20a6aa913712dd971178F0e2ab83f37a85311E9",
+    YapLendCore: "0x0b79A2fb85b01300C389d6987428FF44F9E99786",
+    LoanVault: "0xcd03Bb5f8035bF20dbAf9477C972292FE065CeE6",
+    ProposalManager: "0x12a09414eC78bF8BD8832FF93baD0Bc888604320",
+    NFTEscrow: "0x6dc29347E508D76083C827402FD20Eb247D150D4",
+    
     // Adicionando o NFTEscrow, embora seja possível que não precise de transferência direta
     // já que é gerenciado pelo CollateralManager
     NFTEscrow: "0x361C5a0cef84d05a3EE88e14Fe30446a2697358e"

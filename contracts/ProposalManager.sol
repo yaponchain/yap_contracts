@@ -25,6 +25,7 @@ interface IYapLendCore {
 // Interface para o NFTVerifier
 interface INFTVerifier {
     function verifyOwnership(address owner, address nftAddress, uint256 tokenId) external view returns (bool);
+    function checkOwnership(address owner, address nftAddress, uint256 tokenId) external view returns (bool);
     function checkApproval(address owner, address nftAddress, uint256 tokenId) external view returns (bool);
 }
 
@@ -129,7 +130,7 @@ contract ProposalManager is Initializable, PausableUpgradeable, ReentrancyGuardU
         
         // Verify NFT ownership using the updated NFTVerifier
         for (uint256 i = 0; i < nftAddresses.length; i++) {
-            bool isOwner = _nftVerifier.verifyOwnership(msg.sender, nftAddresses[i], tokenIds[i]);
+            bool isOwner = _nftVerifier.checkOwnership(msg.sender, nftAddresses[i], tokenIds[i]);
             require(isOwner, "Not owner of NFT");
             
             bool isApproved = _nftVerifier.checkApproval(msg.sender, nftAddresses[i], tokenIds[i]);

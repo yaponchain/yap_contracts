@@ -10,6 +10,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 interface IYapLendCore {
     function loans(uint256 loanId) external view returns (
         address borrower,
+        address lender,
         uint256 amount,
         uint256 startTime,
         uint256 duration,
@@ -87,7 +88,7 @@ contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgrade
      */
     function withdraw(uint256 loanId, uint256 amount) external nonReentrant {
         // Get loan information
-        (address borrower, , , , , bool active, bool liquidated) = _yapLendCore.loans(loanId);
+       (address borrower, , , , , , bool active, bool liquidated) = _yapLendCore.loans(loanId);
         
         // Only borrower can withdraw if loan is active and not liquidated
         if (active && !liquidated) {
@@ -120,36 +121,42 @@ contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgrade
      * @return Interest amount
      */
     function calculateInterest(uint256 loanId) external view returns (uint256) {
-        (
-            ,
-            uint256 principal,
+    // Get loan details from YapLendCore with try/catch for error handling
+        try _yapLendCore.loans(loanId) returns (
+            address,
+            address,
+            uint256 amount,
             uint256 startTime,
             uint256 duration,
             uint256 interestRate,
             bool active,
             bool liquidated
-        ) = _yapLendCore.loans(loanId);
-        
-        if (!active || liquidated) {
+        ) {
+            if (!active || liquidated) {
+                return 0;
+            }
+            
+            // Calculate time elapsed (capped at loan duration)
+            uint256 timeElapsed = block.timestamp - startTime;
+            if (timeElapsed > duration) {
+                timeElapsed = duration;
+            }
+            
+            // Convert time elapsed from seconds to days
+            uint256 daysElapsed = timeElapsed / 86400;
+            
+            // Interest = Principal × (APR/100) × (Days/365)
+            // interestRate is in basis points (e.g., 4000 = 40%)
+            uint256 interest = (amount * interestRate * daysElapsed) / (10000 * 365);
+            
+            return interest;
+        } catch {
+            // If there's any error in the call (e.g., loan doesn't exist),
+            // return 0 instead of reverting the transaction
             return 0;
         }
-        
-        // Calculate time elapsed (capped at loan duration)
-        uint256 timeElapsed = block.timestamp - startTime;
-        if (timeElapsed > duration) {
-            timeElapsed = duration;
-        }
-        
-        // Convert time elapsed from seconds to days
-        uint256 daysElapsed = timeElapsed / 86400;
-        
-        // Interest = Principal × (APR/100) × (Days/365)
-        // interestRate is in basis points (e.g., 4000 = 40%)
-        uint256 interest = (principal * interestRate * daysElapsed) / (10000 * 365);
-        
-        return interest;
     }
-    
+
     /**
      * @dev Process interest payment and send protocol fee to multisig
      * @param loanId ID of the loan
