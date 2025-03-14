@@ -67,6 +67,7 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
     event EscrowCreated(address escrowAddress, address nftAddress, uint256 tokenId, uint256 loanId);
     event PartnerInterfaceRegistered(address partnerProject, bytes4 interfaceId);
     event EscrowInitialized(address escrowAddress, address borrower, address lender);
+    event EmergencyNFTRelease(address escrowAddress, address nftAddress, uint256 tokenId, address recipient);
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -332,7 +333,7 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
                 // Para MVP, mantenha o valor fixo por NFT
                 totalValue += 1000 ether;
                 
-                // Quando o price oracle estiver pronto, implemente:
+                // Quando o price oracle estiver pronto, implementar:
                 // address nftAddress = collaterals[collateralIds[i]].nftAddress;
                 // uint256 tokenId = collaterals[collateralIds[i]].tokenId;
                 // totalValue += _priceOracle.getNFTPrice(nftAddress, tokenId);
@@ -442,7 +443,32 @@ contract CollateralManager is Initializable, PausableUpgradeable, ReentrancyGuar
         (bool success, bytes memory returnData) = escrowAddress.call(data);
         return (success, returnData);
     }
-    
+
+    /**
+ * @dev Emergency function to release an NFT from escrow if it's stuck
+ * Only callable by the owner and when the contract is paused
+ * @param escrowAddress Address of the escrow contract
+ * @param recipient Address to receive the NFT
+ */
+    function emergencyReleaseNFT(
+        address escrowAddress,
+        address recipient
+    ) external onlyOwner whenPaused {
+        require(escrowToCollateralId[escrowAddress] != bytes32(0), "Not a valid escrow");
+        
+        bytes32 collateralId = escrowToCollateralId[escrowAddress];
+        address nftAddress = collaterals[collateralId].nftAddress;
+        uint256 tokenId = collaterals[collateralId].tokenId;
+        
+        // Call the escrow to release NFT to recipient
+        NFTEscrow(escrowAddress).releaseNFT(recipient);
+        
+        // Update state
+        collaterals[collateralId].active = false;
+        
+        emit EmergencyNFTRelease(escrowAddress, nftAddress, tokenId, recipient);
+    }
+        
     /**
      * @dev Get the current number of loans (for iterating)
      * @return Current loan ID counter

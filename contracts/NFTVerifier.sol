@@ -81,15 +81,15 @@ contract NFTVerifier is Initializable, OwnableUpgradeable, UUPSUpgradeable {
  * @param tokenId Token ID
  * @return True if ownership is verified
  */
-function checkOwnership(
-    address owner,
-    address nftAddress,
-    uint256 tokenId
-) external view returns (bool) {
-    // First check direct ownership
-    bool directOwnership = _checkDirectOwnership(owner, nftAddress, tokenId);
+    function checkOwnership(
+        address owner,
+        address nftAddress,
+        uint256 tokenId
+    ) external view returns (bool) {
+        // First check direct ownership
+        bool directOwnership = _checkDirectOwnership(owner, nftAddress, tokenId);
     
-    if (directOwnership) {
+        if (directOwnership) {
         return true;
     }
     

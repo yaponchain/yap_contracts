@@ -44,6 +44,7 @@ contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgrade
     event ProtocolFeeSent(uint256 indexed loanId, address indexed feeCollector, uint256 amount);
     event FailedToSendFee(uint256 indexed loanId, address indexed feeCollector, uint256 amount);
     event EmergencyWithdrawal(address indexed recipient, uint256 amount);
+    event InterestCalculationFailed(uint256 indexed loanId, string reason);
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -113,15 +114,14 @@ contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgrade
         emit Withdrawn(loanId, msg.sender, amount);
     }
     
-    /**
+        /**
      * @dev Calculate interest for a loan using the formula:
-     * Interest = Principal × (APR/100) × (Days/365)
+     * Interest = Principal × (APR/10000) × (Seconds/SecondsInYear)
      * 
      * @param loanId ID of the loan
      * @return Interest amount
      */
     function calculateInterest(uint256 loanId) external view returns (uint256) {
-    // Get loan details from YapLendCore with try/catch for error handling
         try _yapLendCore.loans(loanId) returns (
             address,
             address,
@@ -136,24 +136,24 @@ contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgrade
                 return 0;
             }
             
-            // Calculate time elapsed (capped at loan duration)
+            // Calcula o tempo decorrido (limitado à duração do empréstimo)
             uint256 timeElapsed = block.timestamp - startTime;
             if (timeElapsed > duration) {
                 timeElapsed = duration;
             }
             
-            // Convert time elapsed from seconds to days
-            uint256 daysElapsed = timeElapsed / 86400;
+            // Cálculo de juros padrão, mantendo a proporcionalidade ao tempo
+            uint256 regularInterest = (amount * interestRate * timeElapsed) / (10000 * 31536000);
             
-            // Interest = Principal × (APR/100) × (Days/365)
-            // interestRate is in basis points (e.g., 4000 = 40%)
-            uint256 interest = (amount * interestRate * daysElapsed) / (10000 * 365);
+            // Calcula 5% do APR como juros mínimos
+            uint256 minimumInterest = (amount * interestRate * 5) / 1000000;
             
-            return interest;
-        } catch {
-            // If there's any error in the call (e.g., loan doesn't exist),
-            // return 0 instead of reverting the transaction
-            return 0;
+            // Retorna o maior valor entre os juros calculados e o mínimo
+            return regularInterest > minimumInterest ? regularInterest : minimumInterest;
+        } catch Error(string memory reason) {
+            revert(string(abi.encodePacked("Interest calculation failed: ", reason)));
+        } catch (bytes memory) {
+            revert("Interest calculation failed: low level error");
         }
     }
 
@@ -163,38 +163,16 @@ contract LoanVault is Initializable, PausableUpgradeable, ReentrancyGuardUpgrade
      * @param interestAmount Amount of interest paid
      */
     function processInterestPayment(uint256 loanId, uint256 interestAmount) external nonReentrant {
-        // This function should only be called by YapLendCore during loan repayment
-        
-        // For hackathon purposes, we're not strictly checking the caller
         // In production, require(msg.sender == address(_yapLendCore), "Unauthorized");
         
         if (interestAmount == 0) {
             return;
         }
         
-        // Get protocol fee percentage and fee collector address
-        uint256 protocolFeePercentage = _yapLendCore.protocolFeePercentage();
-        address feeCollector = _yapLendCore.feeCollector();
-        
-        // Calculate protocol fee (5% of interest by default)
-        uint256 protocolFee = (interestAmount * protocolFeePercentage) / 10000;
-        
-        // Update loan interest amount
+        // Update loan interest amount for record-keeping
         loanInterests[loanId] += interestAmount;
         
-        // Send protocol fee to multisig if there's any fee
-        if (protocolFee > 0 && feeCollector != address(0)) {
-            // Send fee directly to the multisig
-            (bool success, ) = payable(feeCollector).call{value: protocolFee}("");
-            
-            if (success) {
-                emit ProtocolFeeSent(loanId, feeCollector, protocolFee);
-            } else {
-                // If transfer fails, log the event but continue execution
-                emit FailedToSendFee(loanId, feeCollector, protocolFee);
-            }
-        }
-        
+        // Emit event for tracking
         emit InterestAccrued(loanId, interestAmount);
     }
     
